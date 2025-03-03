@@ -53,9 +53,14 @@ public class YoutubeDownloadService {
         }
 
         List<String> command = List.of(
-                YT_DLP_PATH, "-x", "--audio-format", "mp3", "--audio-quality", "0",
-                "--yes-playlist", // Se for uma playlist, baixa tudo
-                "-o", DOWNLOAD_DIR + "/%(playlist_title)s/%(title)s.%(ext)s", // Organiza por pasta da playlist
+                YT_DLP_PATH,
+                "-x",
+                "--audio-format", "mp3",
+                "--audio-quality", "0",
+                "--yes-playlist",
+                "--parse-metadata", "%(title)s:%(artist)s - %(title)s",
+                "-o", DOWNLOAD_DIR + "/%(artist|Desconhecido)s - %(title)s.%(ext)s",
+                "--restrict-filenames",
                 youtubeUrl
         );
 
