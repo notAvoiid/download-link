@@ -69,6 +69,33 @@ public class YoutubeDownloadService {
         });
     }
 
+    public boolean clearDownloads() {
+        File downloadDirectory = new File(DOWNLOAD_DIR);
+
+        if (!downloadDirectory.exists()) {
+            log.warn("Download directory does not exist: {}", DOWNLOAD_DIR);
+            return false;
+        }
+
+        File[] files = downloadDirectory.listFiles();
+        if (files == null) {
+            log.warn("Failed to list files in the download directory: {}", DOWNLOAD_DIR);
+            return false;
+        }
+
+        boolean allDeleted = true;
+        for (File file : files) {
+            if (file.isFile()) {
+                if (!file.delete()) {
+                    log.error("Failed to delete file: {}", file.getAbsolutePath());
+                    allDeleted = false;
+                }
+            }
+        }
+
+        return allDeleted;
+    }
+
     private static Process getProcess(String youtubeUrl) throws IOException {
         File downloadDirectory = new File(DOWNLOAD_DIR);
         if (!downloadDirectory.exists() && !downloadDirectory.mkdirs()) {

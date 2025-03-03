@@ -56,4 +56,15 @@ public class DownloadController {
             return ResponseEntity.internalServerError().build();
         }
     }
+
+    @DeleteMapping("/cleanup")
+    public ResponseEntity<String> clearDownloads() {
+        boolean success = downloadService.clearDownloads();
+        if (success) {
+            return ResponseEntity.ok("Download folder cleared successfully.");
+        } else {
+            return ResponseEntity.internalServerError().body("Failed to clear download folder.");
+        }
+    }
+
 }
