@@ -3,10 +3,11 @@ package com.abreu.download_link.service;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.io.BufferedReader;
-import java.io.File;
-import java.io.IOException;
-import java.io.InputStreamReader;
+import java.io.*;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.nio.file.attribute.PosixFilePermissions;
+import java.util.List;
 
 @Service
 @Slf4j
@@ -17,15 +18,15 @@ public class YoutubeDownloadService {
 
     public String downloadAudio(String youtubeUrl) throws Exception {
         Process process = getProcess(youtubeUrl);
-        StringBuilder output = new StringBuilder();
 
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                log.info(line);
-                output.append(line).append("\n");
-            }
-        }
+        Thread stdoutThread = new Thread(() -> readStream(process.getInputStream(), true));
+        Thread stderrThread = new Thread(() -> readStream(process.getErrorStream(), false));
+
+        stdoutThread.start();
+        stderrThread.start();
+
+        stdoutThread.join();
+        stderrThread.join();
 
         int exitCode = process.waitFor();
         if (exitCode != 0) {
@@ -33,13 +34,8 @@ public class YoutubeDownloadService {
             throw new RuntimeException("Download failed with exit code: " + exitCode);
         }
 
-        String downloadedFile = extractFilename(output.toString());
-        if (downloadedFile != null) {
-            log.info("Downloaded file: {}", downloadedFile);
-        } else {
-            log.warn("Downloaded file not found in the output. Check directory: {}", DOWNLOAD_DIR);
-        }
-        return "Download completed: " + (downloadedFile != null ? downloadedFile : "Check " + DOWNLOAD_DIR);
+        log.info("Download completed. Check directory: {}", DOWNLOAD_DIR);
+        return "Download completed. Check " + DOWNLOAD_DIR;
     }
 
     private static Process getProcess(String youtubeUrl) throws IOException {
@@ -49,22 +45,37 @@ public class YoutubeDownloadService {
             throw new IOException("Failed to create download directory: " + DOWNLOAD_DIR);
         }
 
-        ProcessBuilder processBuilder = new ProcessBuilder(
-        "/bin/bash", "-c",
-                YT_DLP_PATH + " -x --audio-format mp3 --audio-quality 0 -o \""
-                + DOWNLOAD_DIR + "/%(title)s.%(ext)s\" " + youtubeUrl
-                + " && chmod -R 777 " + DOWNLOAD_DIR
+        List<String> command = List.of(
+                YT_DLP_PATH, "-x", "--audio-format", "mp3", "--audio-quality", "0",
+                "-o", DOWNLOAD_DIR + "/%(title)s.%(ext)s",
+                youtubeUrl
         );
-        processBuilder.redirectErrorStream(true);
-        return processBuilder.start();
+
+        ProcessBuilder processBuilder = new ProcessBuilder(command);
+        processBuilder.directory(downloadDirectory);
+        Process process = processBuilder.start();
+
+        try {
+            Files.setPosixFilePermissions(Paths.get(DOWNLOAD_DIR), PosixFilePermissions.fromString("rwx------"));
+        } catch (UnsupportedOperationException e) {
+            log.warn("Skipping file permission setting. Unsupported on this OS.");
+        }
+
+        return process;
     }
 
-    private String extractFilename(String output) {
-        for (String line : output.split("\n")) {
-            if (line.contains("[ExtractAudio] Destination:")) {
-                return line.replace("[ExtractAudio] Destination: ", "").trim();
+    private void readStream(InputStream inputStream, boolean isStdOut) {
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                if (isStdOut) {
+                    log.info(line);
+                } else {
+                    log.error(line);
+                }
             }
+        } catch (IOException e) {
+            log.error("Error reading process stream", e);
         }
-        return null;
     }
 }
