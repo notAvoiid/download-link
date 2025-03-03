@@ -1,6 +1,7 @@
 package com.abreu.download_link.controller;
 
 import com.abreu.download_link.domain.YoutubeLinkRequest;
+import com.abreu.download_link.domain.YoutubeResponse;
 import com.abreu.download_link.service.YoutubeDownloadService;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -27,10 +28,13 @@ public class DownloadController {
 
     @Async
     @PostMapping("/download")
-    public CompletableFuture<ResponseEntity<String>> downloadAudio(@RequestBody YoutubeLinkRequest request) {
-        return downloadService.downloadAudio(request.url())
+    public CompletableFuture<ResponseEntity<YoutubeResponse>> downloadAudio(@RequestBody YoutubeLinkRequest request) {
+        return downloadService.downloadAudio(request)
                 .thenApply(ResponseEntity::ok)
-                .exceptionally(e -> ResponseEntity.internalServerError().body("Error: " + e.getMessage()));
+                .exceptionally(e -> {
+                    YoutubeResponse errorResponse = new YoutubeResponse(false, "Error: " + e.getCause().getMessage(), null);
+                    return ResponseEntity.internalServerError().body(errorResponse);
+                });
     }
 
     @GetMapping("/download/{filename}")
@@ -52,7 +56,4 @@ public class DownloadController {
             return ResponseEntity.internalServerError().build();
         }
     }
-
-
-
 }
