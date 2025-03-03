@@ -8,6 +8,7 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
 
 @Service
 @Slf4j
@@ -16,26 +17,32 @@ public class YoutubeDownloadService {
     private static final String DOWNLOAD_DIR = System.getProperty("user.dir") + "/downloads";
     private static final String YT_DLP_PATH = System.getenv("YT_DLP_PATH") != null ? System.getenv("YT_DLP_PATH") : "/venv/bin/yt-dlp";
 
-    public String downloadAudio(String youtubeUrl) throws Exception {
-        Process process = getProcess(youtubeUrl);
+    public CompletableFuture<String> downloadAudio(String youtubeUrl) {
+        return CompletableFuture.supplyAsync(() -> {
+            try {
+                Process process = getProcess(youtubeUrl);
 
-        Thread stdoutThread = new Thread(() -> readStream(process.getInputStream(), true));
-        Thread stderrThread = new Thread(() -> readStream(process.getErrorStream(), false));
+                Thread stdoutThread = new Thread(() -> readStream(process.getInputStream(), true));
+                Thread stderrThread = new Thread(() -> readStream(process.getErrorStream(), false));
 
-        stdoutThread.start();
-        stderrThread.start();
+                stdoutThread.start();
+                stderrThread.start();
 
-        stdoutThread.join();
-        stderrThread.join();
+                stdoutThread.join();
+                stderrThread.join();
 
-        int exitCode = process.waitFor();
-        if (exitCode != 0) {
-            log.error("Download failed with exit code: {}", exitCode);
-            throw new RuntimeException("Download failed with exit code: " + exitCode);
-        }
+                int exitCode = process.waitFor();
+                if (exitCode != 0) {
+                    log.error("Download failed with exit code: {}", exitCode);
+                    throw new RuntimeException("Download failed with exit code: " + exitCode);
+                }
 
-        log.info("Download completed. Check directory: {}", DOWNLOAD_DIR);
-        return "Download completed. Check " + DOWNLOAD_DIR;
+                return "Download completed. Check: " + DOWNLOAD_DIR;
+            } catch (Exception e) {
+                log.error("Error downloading audio", e);
+                throw new RuntimeException("Error downloading audio: " + e.getMessage());
+            }
+        });
     }
 
     private static Process getProcess(String youtubeUrl) throws IOException {
@@ -47,7 +54,8 @@ public class YoutubeDownloadService {
 
         List<String> command = List.of(
                 YT_DLP_PATH, "-x", "--audio-format", "mp3", "--audio-quality", "0",
-                "-o", DOWNLOAD_DIR + "/%(title)s.%(ext)s",
+                "--yes-playlist", // Se for uma playlist, baixa tudo
+                "-o", DOWNLOAD_DIR + "/%(playlist_title)s/%(title)s.%(ext)s", // Organiza por pasta da playlist
                 youtubeUrl
         );
 
