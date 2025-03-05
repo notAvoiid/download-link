@@ -5,20 +5,18 @@ import com.abreu.download_link.domain.YoutubeLinkRequest;
 import com.abreu.download_link.domain.YoutubeResponse;
 import com.abreu.download_link.domain.enums.Status;
 import com.abreu.download_link.exceptions.DownloadFailedException;
-import com.abreu.download_link.exceptions.FileAlreadyExistsException;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
 
 @Service
 @RequiredArgsConstructor
@@ -38,55 +36,42 @@ public class YoutubeDownloadService {
 
     @Async
     public CompletableFuture<YoutubeResponse> downloadAudio(YoutubeLinkRequest request) {
-        return CompletableFuture.supplyAsync(() -> {
-            final String videoId = urlValidator.validateAndExtractVideoId(request.url());
-            statusManager.updateStatus(videoId, Status.STARTING);
+        final String videoId = urlValidator.validateAndExtractVideoId(request.url());
+        statusManager.updateStatus(videoId, Status.STARTING);
 
-            try {
-                String expectedFileName = processManager.getExpectedFileName(request.url(), DOWNLOAD_DIR);
-                Path filePath = Paths.get(DOWNLOAD_DIR, expectedFileName);
+        try {
+            String expectedFileName = processManager.getExpectedFileName(request.url(), DOWNLOAD_DIR);
+            Path filePath = Paths.get(DOWNLOAD_DIR, new File(expectedFileName).getName());
 
-                if (Files.exists(filePath)) {
-                    statusManager.updateStatus(videoId, Status.ALREADY_EXISTS);
-                    return new YoutubeResponse("File already exists", filePath.toString(), Status.ALREADY_EXISTS);
-                }
-
-                statusManager.updateStatus(videoId, Status.IN_PROGRESS);
-                ProcessResult result = processManager.executeDownload(request.url(), DOWNLOAD_DIR);
-
-                if (result.exitCode() != 0) {
-                    throw new DownloadFailedException("Download failed. Exit code: " + result.exitCode());
-                }
-
-                if (!Files.exists(filePath)) {
-                    throw new DownloadFailedException("File overwritten " + filePath);
-                }
-
-                statusManager.updateStatus(videoId, Status.COMPLETED);
-                return new YoutubeResponse("Download completed successfully", filePath.toString(), Status.COMPLETED);
-
-            } catch (FileAlreadyExistsException e) {
+            if (Files.exists(filePath)) {
                 statusManager.updateStatus(videoId, Status.ALREADY_EXISTS);
-                log.warn("File already exists: {}", e.getMessage());
-                return new YoutubeResponse(e.getMessage(), null, Status.ALREADY_EXISTS);
-            } catch (Exception e) {
-                statusManager.updateStatus(videoId, Status.FAILED);
-                log.error("Error downloading audio {}: {}", videoId, e.getMessage());
-                throw new CompletionException(e);
+                return CompletableFuture.completedFuture(new YoutubeResponse("File already exists", filePath.toString(), Status.ALREADY_EXISTS));
             }
-        });
+
+            statusManager.updateStatus(videoId, Status.IN_PROGRESS);
+            ProcessResult result = processManager.executeDownload(request.url(), DOWNLOAD_DIR);
+            Path downloadedFilePath = Paths.get(result.filepath());
+
+            if (result.exitCode() != 0 || !Files.exists(downloadedFilePath)) {
+                throw new DownloadFailedException("Download failed. Exit code: " + result.exitCode());
+            }
+
+            statusManager.updateStatus(videoId, Status.COMPLETED);
+            return CompletableFuture.completedFuture(new YoutubeResponse("Download completed successfully", filePath.toString(), Status.COMPLETED));
+
+        } catch (IOException e) {
+            log.error("IOException occurred while retrieving expected file name for URL {}: {}", request.url(), e.getMessage());
+            throw new DownloadFailedException("Error retrieving expected file name: " + e.getMessage(), e);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.error("Download was interrupted for URL {}: {}", request.url(), e.getMessage());
+            throw new DownloadFailedException("Download was interrupted", e);
+        }
     }
 
     public boolean clearDownloads() {
+        log.info("Clearing downloads directory");
         return fileSystemManager.cleanDirectory(DOWNLOAD_DIR);
-    }
-
-    private String extractFilePath(String output) {
-        return Arrays.stream(output.split("\n"))
-                .filter(line -> line.contains("[ExtractAudio] Destination:"))
-                .map(line -> line.replace("[ExtractAudio] Destination: ", "").trim())
-                .findFirst()
-                .orElseThrow(() -> new DownloadFailedException("File path not found in output"));
     }
 
     public Status getDownloadStatus(String videoId) {

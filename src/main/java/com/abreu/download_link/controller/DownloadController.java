@@ -29,11 +29,7 @@ public class DownloadController {
     @PostMapping("/download")
     public CompletableFuture<ResponseEntity<YoutubeResponse>> downloadAudio(@RequestBody YoutubeLinkRequest request) {
         return downloadService.downloadAudio(request)
-                .thenApply(ResponseEntity::ok)
-                .exceptionally(e -> {
-                    YoutubeResponse errorResponse = new YoutubeResponse(e.getCause().getMessage(), null, Status.FAILED);
-                    return ResponseEntity.internalServerError().body(errorResponse);
-                });
+                .thenApply(ResponseEntity::ok);
     }
 
     @GetMapping("/download/{filename}")

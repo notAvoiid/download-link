@@ -9,6 +9,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.util.stream.Stream;
 
 @Component
 @Slf4j
@@ -26,7 +27,6 @@ public class FileSystemManager {
                 throw new IOException("Failed to create directory: " + path, e);
             }
         }
-
         setDirectoryPermissions(dirPath);
     }
 
@@ -48,11 +48,9 @@ public class FileSystemManager {
     }
 
     public boolean cleanDirectory(String path) {
-        try {
-            return Files.walk(Paths.get(path))
-                    .filter(Files::isRegularFile)
-                    .map(this::deleteFile)
-                    .allMatch(Boolean::booleanValue);
+        try (Stream<Path> stream = Files.walk(Paths.get(path))) {
+            return stream.filter(Files::isRegularFile)
+                    .allMatch(this::deleteFile);
         } catch (IOException e) {
             log.error("Error cleaning directory: {}", e.getMessage());
             return false;
