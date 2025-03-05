@@ -1,147 +1,95 @@
 package com.abreu.download_link.service;
 
+import com.abreu.download_link.domain.ProcessResult;
 import com.abreu.download_link.domain.YoutubeLinkRequest;
 import com.abreu.download_link.domain.YoutubeResponse;
+import com.abreu.download_link.domain.enums.Status;
+import com.abreu.download_link.exceptions.DownloadFailedException;
+import com.abreu.download_link.exceptions.FileAlreadyExistsException;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
 
-import java.io.*;
+import java.io.IOException;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.attribute.PosixFilePermissions;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
-import java.util.function.Consumer;
 
 @Service
+@RequiredArgsConstructor
 @Slf4j
 public class YoutubeDownloadService {
-
     private static final String DOWNLOAD_DIR = System.getProperty("user.dir") + "/downloads";
-    private static final String YT_DLP_PATH = System.getenv("YT_DLP_PATH") != null ? System.getenv("YT_DLP_PATH") : "/venv/bin/yt-dlp";
 
+    private final YoutubeUrlValidator urlValidator;
+    private final YoutubeProcessManager processManager;
+    private final FileSystemManager fileSystemManager;
+    private final DownloadStatusManager statusManager;
+
+    @PostConstruct
+    public void init() throws IOException {
+        fileSystemManager.createDirectoryWithPermissions(DOWNLOAD_DIR);
+    }
+
+    @Async
     public CompletableFuture<YoutubeResponse> downloadAudio(YoutubeLinkRequest request) {
         return CompletableFuture.supplyAsync(() -> {
+            final String videoId = urlValidator.validateAndExtractVideoId(request.url());
+            statusManager.updateStatus(videoId, Status.STARTING);
+
             try {
-                if (!request.url().matches("^(https?://)?(www\\.)?(youtube\\.com|youtu\\.be)/.*")) {
-                    throw new IllegalArgumentException("Invalid YouTube URL");
+                String expectedFileName = processManager.getExpectedFileName(request.url(), DOWNLOAD_DIR);
+                Path filePath = Paths.get(DOWNLOAD_DIR, expectedFileName);
+
+                if (Files.exists(filePath)) {
+                    statusManager.updateStatus(videoId, Status.ALREADY_EXISTS);
+                    return new YoutubeResponse("File already exists", filePath.toString(), Status.ALREADY_EXISTS);
                 }
 
-                Process process = getProcess(request.url());
+                statusManager.updateStatus(videoId, Status.IN_PROGRESS);
+                ProcessResult result = processManager.executeDownload(request.url(), DOWNLOAD_DIR);
 
-                List<String> outputLines = Collections.synchronizedList(new ArrayList<>());
-                Thread stdoutThread = new Thread(() -> readStream(process.getInputStream(), log::info, outputLines));
-                Thread stderrThread = new Thread(() -> readStream(process.getErrorStream(), log::error));
-
-                stdoutThread.start();
-                stderrThread.start();
-
-                int exitCode = process.waitFor();
-                stdoutThread.join();
-                stderrThread.join();
-
-                if (exitCode != 0) {
-                    return new YoutubeResponse(false, "Download failed with exit code: " + exitCode, null);
+                if (result.exitCode() != 0) {
+                    throw new DownloadFailedException("Download failed. Exit code: " + result.exitCode());
                 }
 
-                String filePath = outputLines.stream()
-                        .filter(line -> line.contains("[ExtractAudio] Destination:"))
-                        .map(line -> line.replace("[ExtractAudio] Destination: ", "").trim())
-                        .findFirst()
-                        .orElse(null);
-
-                if (filePath == null) {
-                    return new YoutubeResponse(false, "Download completed, but file path could not be determined.", null);
+                if (!Files.exists(filePath)) {
+                    throw new DownloadFailedException("File overwritten " + filePath);
                 }
 
-                return new YoutubeResponse(true, "Download completed successfully.", filePath);
-            } catch (IOException e) {
-                throw new CompletionException("I/O error during download", e);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                throw new CompletionException("Download interrupted", e);
+                statusManager.updateStatus(videoId, Status.COMPLETED);
+                return new YoutubeResponse("Download completed successfully", filePath.toString(), Status.COMPLETED);
+
+            } catch (FileAlreadyExistsException e) {
+                statusManager.updateStatus(videoId, Status.ALREADY_EXISTS);
+                log.warn("File already exists: {}", e.getMessage());
+                return new YoutubeResponse(e.getMessage(), null, Status.ALREADY_EXISTS);
             } catch (Exception e) {
-                throw new CompletionException("Error downloading audio: " + e.getMessage(), e);
+                statusManager.updateStatus(videoId, Status.FAILED);
+                log.error("Error downloading audio {}: {}", videoId, e.getMessage());
+                throw new CompletionException(e);
             }
         });
     }
 
     public boolean clearDownloads() {
-        File downloadDirectory = new File(DOWNLOAD_DIR);
-
-        if (!downloadDirectory.exists()) {
-            log.warn("Download directory does not exist: {}", DOWNLOAD_DIR);
-            return false;
-        }
-
-        File[] files = downloadDirectory.listFiles();
-        if (files == null) {
-            log.warn("Failed to list files in the download directory: {}", DOWNLOAD_DIR);
-            return false;
-        }
-
-        boolean allDeleted = true;
-        for (File file : files) {
-            if (file.isFile()) {
-                if (!file.delete()) {
-                    log.error("Failed to delete file: {}", file.getAbsolutePath());
-                    allDeleted = false;
-                }
-            }
-        }
-
-        return allDeleted;
+        return fileSystemManager.cleanDirectory(DOWNLOAD_DIR);
     }
 
-    private static Process getProcess(String youtubeUrl) throws IOException {
-        File downloadDirectory = new File(DOWNLOAD_DIR);
-        if (!downloadDirectory.exists() && !downloadDirectory.mkdirs()) {
-            log.error("Failed to create download directory: {}", DOWNLOAD_DIR);
-            throw new IOException("Failed to create download directory: " + DOWNLOAD_DIR);
-        }
-
-        List<String> command = List.of(
-                YT_DLP_PATH,
-                "-x",
-                "--audio-format", "mp3",
-                "--audio-quality", "0",
-                "--yes-playlist",
-                "--parse-metadata", "%(title)s:%(artist)s - %(title)s",
-                "-o", DOWNLOAD_DIR + "/%(artist|Desconhecido)s - %(title)s.%(ext)s",
-                "--restrict-filenames",
-                "-c",
-                youtubeUrl
-        );
-
-        ProcessBuilder processBuilder = new ProcessBuilder(command)
-                .directory(downloadDirectory);
-        Process process = processBuilder.start();
-
-        try {
-            Files.setPosixFilePermissions(Paths.get(DOWNLOAD_DIR), PosixFilePermissions.fromString("rwxrwxrwx"));
-        } catch (UnsupportedOperationException e) {
-            log.warn("Skipping file permission setting. Unsupported on this OS.");
-        }
-
-        return process;
+    private String extractFilePath(String output) {
+        return Arrays.stream(output.split("\n"))
+                .filter(line -> line.contains("[ExtractAudio] Destination:"))
+                .map(line -> line.replace("[ExtractAudio] Destination: ", "").trim())
+                .findFirst()
+                .orElseThrow(() -> new DownloadFailedException("File path not found in output"));
     }
 
-    private void readStream(InputStream inputStream, Consumer<String> logger, List<String> outputLines) {
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                logger.accept(line);
-                outputLines.add(line);
-            }
-        } catch (IOException e) {
-            log.error("Error reading process stream", e);
-        }
-    }
-
-    private void readStream(InputStream inputStream, Consumer<String> logger) {
-        readStream(inputStream, logger, new ArrayList<>());
+    public Status getDownloadStatus(String videoId) {
+        return statusManager.getStatus(videoId);
     }
 }

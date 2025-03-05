@@ -2,6 +2,7 @@ package com.abreu.download_link.controller;
 
 import com.abreu.download_link.domain.YoutubeLinkRequest;
 import com.abreu.download_link.domain.YoutubeResponse;
+import com.abreu.download_link.domain.enums.Status;
 import com.abreu.download_link.service.YoutubeDownloadService;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.UrlResource;
@@ -9,7 +10,6 @@ import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
-import org.springframework.scheduling.annotation.Async;
 import org.springframework.web.bind.annotation.*;
 
 import java.nio.file.Path;
@@ -26,13 +26,12 @@ public class DownloadController {
         this.downloadService = downloadService;
     }
 
-    @Async
     @PostMapping("/download")
     public CompletableFuture<ResponseEntity<YoutubeResponse>> downloadAudio(@RequestBody YoutubeLinkRequest request) {
         return downloadService.downloadAudio(request)
                 .thenApply(ResponseEntity::ok)
                 .exceptionally(e -> {
-                    YoutubeResponse errorResponse = new YoutubeResponse(false, "Error: " + e.getCause().getMessage(), null);
+                    YoutubeResponse errorResponse = new YoutubeResponse(e.getCause().getMessage(), null, Status.FAILED);
                     return ResponseEntity.internalServerError().body(errorResponse);
                 });
     }
@@ -55,6 +54,11 @@ public class DownloadController {
         } catch (Exception e) {
             return ResponseEntity.internalServerError().build();
         }
+    }
+
+    @GetMapping("/status/{videoId}")
+    public ResponseEntity<Status> getDownloadStatus(@PathVariable String videoId) {
+        return ResponseEntity.ok(downloadService.getDownloadStatus(videoId));
     }
 
     @DeleteMapping("/cleanup")
