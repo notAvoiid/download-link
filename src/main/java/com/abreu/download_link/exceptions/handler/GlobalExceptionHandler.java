@@ -5,6 +5,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
@@ -60,6 +61,30 @@ public class GlobalExceptionHandler {
                 .status(INTERNAL_SERVER_ERROR)
                 .contentType(APPLICATION_JSON)
                 .body(buildErrorMessage(request, INTERNAL_SERVER_ERROR, ex.getMessage()));
+    }
+
+    @ExceptionHandler(MalformedURLException.class)
+    public ResponseEntity<ErrorMessage> handleMalformedURLException(MalformedURLException ex, HttpServletRequest request) {
+        logError(ex, request);
+        return ResponseEntity
+                .status(BAD_REQUEST)
+                .contentType(APPLICATION_JSON)
+                .body(buildErrorMessage(request, BAD_REQUEST, ex.getMessage()));
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    public final ResponseEntity<ErrorMessage> handleValidationExceptions(MethodArgumentNotValidException ex, HttpServletRequest request) {
+        if (request == null) {
+            log.error("{} - URI: {}", ERROR_PREFIX, "N/A", ex);
+            return ResponseEntity.badRequest().contentType(APPLICATION_JSON).body(new ErrorMessage(BAD_REQUEST, ex.getMessage()));
+        }
+
+        log.error("{} - URI: {}", ERROR_PREFIX, request.getRequestURI(), ex);
+        return ResponseEntity
+                .badRequest()
+                .contentType(APPLICATION_JSON)
+                .body(new ErrorMessage(request, BAD_REQUEST, "Validation error in fields", ex.getBindingResult()));
+
     }
 
     private ErrorMessage buildErrorMessage(HttpServletRequest request, HttpStatus status, String message) {

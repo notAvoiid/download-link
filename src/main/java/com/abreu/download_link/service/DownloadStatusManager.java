@@ -1,21 +1,28 @@
 package com.abreu.download_link.service;
 
+import com.abreu.download_link.domain.DownloadStatus;
 import com.abreu.download_link.domain.enums.Status;
+import lombok.Getter;
 import org.springframework.stereotype.Component;
 
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ConcurrentMap;
 
 @Component
+@Getter
 public class DownloadStatusManager {
-    private final ConcurrentMap<String, Status> statusMap = new ConcurrentHashMap<>();
 
-    public void updateStatus(String videoId, Status status) {
-        statusMap.put(videoId, status);
+    private final ConcurrentHashMap<String, DownloadStatus> statusMap = new ConcurrentHashMap<>();
+
+    public void updateStatus(String url, Status status) {
+        statusMap.put(url, new DownloadStatus(status, ""));
     }
 
-    public Status getStatus(String videoId) {
-        return statusMap.getOrDefault(videoId, Status.NOT_FOUND);
+    public void updateStatus(String url, Status status, String message) {
+        statusMap.put(url, new DownloadStatus(status, message));
+    }
+
+    public DownloadStatus getStatus(String url) {
+        return statusMap.getOrDefault(url, new DownloadStatus(Status.NOT_FOUND, ""));
     }
 
 }
