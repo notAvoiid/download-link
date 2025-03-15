@@ -13,8 +13,16 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.concurrent.CompletableFuture;
 
+import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
+import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.responses.ApiResponse;
+import io.swagger.v3.oas.annotations.tags.Tag;
+
 @RestController
 @RequestMapping("/api")
+@Tag(name = "YouTube Downloader", description = "APIs for downloading YouTube audio")
 public class DownloadController {
 
     private final YoutubeDownloadService downloadService;
@@ -24,18 +32,43 @@ public class DownloadController {
     }
 
     @PostMapping("/download")
-    public CompletableFuture<ResponseEntity<YoutubeResponse>> downloadAudio(@RequestBody @Valid YoutubeLinkRequest request) {
+    @Operation(
+            summary = "Download audio from YouTube",
+            description = "Submit a YouTube URL to start audio download",
+            responses = {
+                    @ApiResponse(
+                            responseCode = "200",
+                            description = "Download initiated",
+                            content = @Content(schema = @Schema(implementation = YoutubeResponse.class))
+                    ),
+                    @ApiResponse(responseCode = "400", description = "Invalid URL provided")
+            }
+    )
+    public CompletableFuture<ResponseEntity<YoutubeResponse>> downloadAudio(
+            @RequestBody @Valid YoutubeLinkRequest request) {
         return downloadService.downloadAudio(request)
                 .thenApply(ResponseEntity::ok);
     }
 
     @GetMapping("/status")
-    public ResponseEntity<DownloadStatus> getStatus(@RequestParam String url) {
+    @Operation(
+            summary = "Check download status",
+            description = "Get the status of a YouTube audio download by URL"
+    )
+    public ResponseEntity<DownloadStatus> getStatus(
+            @Parameter(description = "YouTube URL to check status", required = true)
+            @RequestParam String url) {
         return ResponseEntity.ok(downloadService.getStatus(url));
     }
 
-    @GetMapping("download/{filename}")
-    public ResponseEntity<Resource> getFile(@PathVariable String filename) {
+    @GetMapping("/download/{filename}")
+    @Operation(
+            summary = "Download audio file",
+            description = "Download the audio file by filename"
+    )
+    public ResponseEntity<Resource> getFile(
+            @Parameter(description = "Name of the downloaded file", required = true)
+            @PathVariable String filename) {
         Resource fileResource = downloadService.getFile(filename);
 
         return ResponseEntity.ok()
@@ -45,9 +78,13 @@ public class DownloadController {
     }
 
     @DeleteMapping("/cleanup")
+    @Operation(
+            summary = "Cleanup downloads",
+            description = "Delete all downloaded audio files"
+    )
+    @ApiResponse(responseCode = "204", description = "Cleanup successful")
     public ResponseEntity<Void> clearDownloads() {
         downloadService.clearDownloads();
         return ResponseEntity.noContent().build();
     }
-
 }
