@@ -47,15 +47,20 @@ public class YoutubeDownloadService {
         statusManager.updateStatus(url, Status.STARTING, "Download starting");
 
         try {
-            String expectedFileName = processManager.getExpectedFileName(request.url(), DOWNLOAD_DIR);
-            Path filePath = Paths.get(DOWNLOAD_DIR, new File(expectedFileName).getName());
+            String expectedFileName = processManager.getExpectedFileName(url, DOWNLOAD_DIR);
+            Path filePathMp3 = Paths.get(DOWNLOAD_DIR, new File(expectedFileName).getName().replace(".webm", ".mp3"));
 
-            if (Files.exists(filePath)) {
+            log.info("Checking file existence: {}", filePathMp3);
+
+            if (Files.exists(filePathMp3)) {
                 statusManager.updateStatus(url, Status.ALREADY_EXISTS, "File already exists");
-                return CompletableFuture.completedFuture(new YoutubeResponse("File already exists", filePath.toString(), Status.ALREADY_EXISTS));
+                log.info("File already exists: {}", filePathMp3);
+                return CompletableFuture.completedFuture(new YoutubeResponse("File already exists", filePathMp3.toString(), Status.ALREADY_EXISTS));
             }
 
             statusManager.updateStatus(url, Status.IN_PROGRESS, "Download in progress");
+            log.info("Starting download for URL: {}", url);
+
             ProcessResult result = processManager.executeDownload(url, DOWNLOAD_DIR);
             Path downloadedFilePath = Paths.get(DOWNLOAD_DIR, new File(result.filepath()).getName().replace(".webm", ".mp3"));
 
@@ -64,14 +69,16 @@ public class YoutubeDownloadService {
             }
 
             statusManager.updateStatus(url, Status.COMPLETED, "Download completed successfully");
+            log.info("Download completed: {}", downloadedFilePath);
+
             return CompletableFuture.completedFuture(new YoutubeResponse("Download completed successfully", downloadedFilePath.toString(), Status.COMPLETED));
 
         } catch (IOException e) {
-            log.error("IOException occurred while retrieving expected file name for URL {}: {}", url, e.getMessage());
+            log.error("Error retrieving expected file name for URL {}: {}", url, e.getMessage(), e);
             throw new DownloadFailedException("Error retrieving expected file name: " + e.getMessage(), e);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.error("Download was interrupted for URL {}: {}", url, e.getMessage());
+            log.error("Download was interrupted for URL {}: {}", url, e.getMessage(), e);
             throw new DownloadFailedException("Download was interrupted", e);
         }
     }
@@ -81,27 +88,27 @@ public class YoutubeDownloadService {
             Path filePath = downloadsDir.resolve(filename).normalize();
 
             if (!filePath.startsWith(downloadsDir)) {
-                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Acesso negado ao arquivo solicitado.");
+                throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access to the requested file is denied.");
             }
 
             Resource fileResource = new UrlResource(filePath.toUri());
 
             if (!fileResource.exists() || !fileResource.isReadable()) {
-                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Arquivo não encontrado: " + filename);
+                throw new ResponseStatusException(HttpStatus.NOT_FOUND, "File not found: " + filename);
             }
 
             return fileResource;
 
         } catch (MalformedURLException e) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "URL malformada.", e);
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Malformed URL.", e);
         } catch (IOException e) {
-            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Erro ao ler arquivo.", e);
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, "Error reading file.", e);
         }
     }
 
-    public boolean clearDownloads() {
+    public void clearDownloads() {
         log.info("Clearing downloads directory");
-        return fileSystemManager.cleanDirectory(DOWNLOAD_DIR);
+        fileSystemManager.cleanDirectory(DOWNLOAD_DIR);
     }
 
     public DownloadStatus getStatus(String url) {
