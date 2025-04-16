@@ -5,6 +5,7 @@ import com.abreu.download_link.domain.YoutubeLinkRequest;
 import com.abreu.download_link.domain.YoutubeResponse;
 import com.abreu.download_link.service.YoutubeDownloadService;
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
@@ -23,6 +24,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 @RestController
 @RequestMapping("/api")
 @Tag(name = "YouTube Downloader", description = "APIs for downloading YouTube audio")
+@Slf4j
 public class DownloadController {
 
     private final YoutubeDownloadService downloadService;
@@ -71,10 +73,24 @@ public class DownloadController {
             @PathVariable String filename) {
         Resource fileResource = downloadService.getFile(filename);
 
-        return ResponseEntity.ok()
+
+        ResponseEntity<Resource> response = ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .body(fileResource);
+
+        CompletableFuture.runAsync(() -> {
+            try {
+                Thread.sleep(2500);
+                downloadService.clearDownloads();
+                log.info("Downloads directory cleaned after serving file: {}", filename);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.error("Cleanup interrupted", e);
+            }
+        });
+
+        return response;
     }
 
     @DeleteMapping("/cleanup")

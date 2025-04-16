@@ -44,16 +44,16 @@ public class YoutubeDownloadService {
     @Async
     public CompletableFuture<YoutubeResponse> downloadAudio(YoutubeLinkRequest request) {
         String url = request.url();
-        statusManager.updateStatus(url, Status.STARTING, "Download starting");
 
         try {
+            statusManager.updateStatus(url, Status.STARTING, "Download starting");
+
             String expectedFileName = processManager.getExpectedFileName(url, DOWNLOAD_DIR);
             Path filePathMp3 = Paths.get(DOWNLOAD_DIR, new File(expectedFileName).getName().replace(".webm", ".mp3"));
 
             log.info("Checking file existence: {}", filePathMp3);
 
             if (Files.exists(filePathMp3)) {
-                statusManager.updateStatus(url, Status.ALREADY_EXISTS, "File already exists");
                 log.info("File already exists: {}", filePathMp3);
                 return CompletableFuture.completedFuture(new YoutubeResponse("File already exists", filePathMp3.toString(), Status.ALREADY_EXISTS));
             }
@@ -65,6 +65,7 @@ public class YoutubeDownloadService {
             Path downloadedFilePath = Paths.get(DOWNLOAD_DIR, new File(result.filepath()).getName().replace(".webm", ".mp3"));
 
             if (result.exitCode() != 0 || !Files.exists(downloadedFilePath)) {
+                statusManager.updateStatus(url, Status.FAILED, "Download Failed");
                 throw new DownloadFailedException("Download failed. Exit code: " + result.exitCode());
             }
 

@@ -21,5 +21,8 @@ public enum Status {
     NOT_FOUND,
 
     @Schema(description = "Download already exists in system")
-    ALREADY_EXISTS
+    ALREADY_EXISTS,
+
+    @Schema(description = "Download Failed")
+    FAILED
 }
