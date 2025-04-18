@@ -55,6 +55,7 @@ public class YoutubeDownloadService {
 
             if (Files.exists(filePathMp3)) {
                 log.info("File already exists: {}", filePathMp3);
+                this.clearDownloads();
                 return CompletableFuture.completedFuture(new YoutubeResponse("File already exists", filePathMp3.toString(), Status.ALREADY_EXISTS));
             }
 
