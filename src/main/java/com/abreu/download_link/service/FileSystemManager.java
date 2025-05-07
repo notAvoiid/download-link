@@ -9,7 +9,6 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermissions;
-import java.util.stream.Stream;
 
 @Component
 @Slf4j
@@ -19,13 +18,9 @@ public class FileSystemManager {
         Path dirPath = Paths.get(path);
 
         if (!Files.exists(dirPath)) {
-            try {
-                Files.createDirectories(dirPath);
-                log.info("Directory created: {}", dirPath.toAbsolutePath());
-            } catch (IOException e) {
-                log.error("Error creating directory: {}", e.getMessage());
-                throw new IOException("Failed to create directory: " + path, e);
-            }
+            Files.createDirectories(dirPath);
+        } else {
+            log.debug("Reusing existing directory: {}", dirPath.toAbsolutePath());
         }
         setDirectoryPermissions(dirPath);
     }
@@ -47,23 +42,14 @@ public class FileSystemManager {
         return FileSystems.getDefault().supportedFileAttributeViews().contains("posix");
     }
 
-    public boolean cleanDirectory(String path) {
-        try (Stream<Path> stream = Files.walk(Paths.get(path))) {
-            return stream.filter(Files::isRegularFile)
-                    .allMatch(this::deleteFile);
-        } catch (IOException e) {
-            log.error("Error cleaning directory: {}", e.getMessage());
-            return false;
+    private String getPosixPermissions(Path path) {
+        if (isPosixCompatible()) {
+            try {
+                return PosixFilePermissions.toString(Files.getPosixFilePermissions(path));
+            } catch (IOException e) {
+                return "Error reading permissions: " + e.getMessage();
+            }
         }
-    }
-
-    private boolean deleteFile(Path filePath) {
-        try {
-            Files.delete(filePath);
-            return true;
-        } catch (IOException e) {
-            log.error("Failed to delete file {}: {}", filePath, e.getMessage());
-            return false;
-        }
+        return "POSIX not supported";
     }
 }

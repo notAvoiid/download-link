@@ -15,7 +15,7 @@ public record ProcessResult(
 
         @Schema(
                 description = "Path to the downloaded file",
-                example = "/downloads/youtube_video.mp3"
+                example = "/tmp/youtube_video.mp3"
         )
         String filepath,
 
