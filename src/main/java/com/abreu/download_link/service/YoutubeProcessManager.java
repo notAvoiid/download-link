@@ -9,6 +9,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -22,7 +23,7 @@ public class YoutubeProcessManager {
             .orElse("/venv/bin/yt-dlp");
 
     public ProcessResult executeDownload(String url, String downloadDir) throws IOException, InterruptedException {
-        List<String> command = createCommand(url, downloadDir);
+        List<String> command = createCommand(url);
         Process process = new ProcessBuilder(command)
                 .directory(new File(downloadDir))
                 .redirectErrorStream(true)
@@ -49,7 +50,7 @@ public class YoutubeProcessManager {
         outputThread.join();
 
         String fullOutput = outputBuffer.toString();
-        String filePath = extractFilePath(fullOutput);
+        String filePath = extractFilePath(fullOutput, downloadDir);
 
         if (exitCode != 0) {
             log.error("Download process failed with exit code {}. Output: {}", exitCode, fullOutput);
@@ -65,17 +66,22 @@ public class YoutubeProcessManager {
         );
     }
 
-    private String extractFilePath(String output) {
+    private String extractFilePath(String output, String downloadDir) {
         return Arrays.stream(output.split("\n"))
-                .filter(line -> line.contains("[ExtractAudio] Destination:"))
-                .map(line -> line.replace("[ExtractAudio] Destination: ", "").trim())
+                .filter(line -> line.contains("[ExtractAudio] Destination:") ||
+                        line.endsWith(".mp3"))
+                .map(line -> {
+                    if (line.contains("Destination:")) {
+                        return Paths.get(downloadDir, line.replace("[ExtractAudio] Destination:", "").trim()).toString();
+                    }
+                    return Paths.get(downloadDir, line.trim()).toString();
+                })
                 .findFirst()
-                .orElseThrow(() -> new DownloadFailedException("File path not found in output"));
+                .orElseThrow(() -> new DownloadFailedException("File path not found in output: " + output));
     }
 
-
     public String getExpectedFileName(String url, String downloadDir) throws IOException, InterruptedException {
-        List<String> command = new ArrayList<>(createCommand(url, downloadDir));
+        List<String> command = new ArrayList<>(createCommand(url));
         command.add("--simulate");
         command.add("--print");
         command.add("filename");
@@ -90,10 +96,10 @@ public class YoutubeProcessManager {
             throw new IOException("Failed to retrieve file name: " + result.error());
         }
 
-        return result.output().trim();
+        return Paths.get(downloadDir, result.output().trim()).toString();
     }
 
-    private List<String> createCommand(String url, String downloadDir) {
+    private List<String> createCommand(String url) {
         return List.of(
                 YT_DLP_PATH,
                 "-x",
@@ -101,9 +107,10 @@ public class YoutubeProcessManager {
                 "--audio-quality", "0",
                 "--yes-playlist",
                 "--parse-metadata", "%(title)s:%(artist)s - %(title)s",
-                "-o", downloadDir + "/%(artist|Unknown)s - %(title)s.%(ext)s",
+                "-o", "%(artist|Unknown)s - %(title)s.%(ext)s",
                 "--restrict-filenames",
                 "--force-overwrites",
+                "--no-keep-video",
                 "-c",
                 url
         );
@@ -118,12 +125,15 @@ public class YoutubeProcessManager {
             }
         }
         int exitCode = process.waitFor();
+        String output = outputBuffer.toString().trim();
+        String firstLine = output.split("\n")[0].trim();
+
         return new ProcessResult(
                 exitCode,
+                firstLine,
                 "",
-                "",
-                outputBuffer.toString().trim()
-        );    }
+                output
+        );
+    }
 
 }
-
