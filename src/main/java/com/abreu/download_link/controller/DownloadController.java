@@ -64,43 +64,17 @@ public class DownloadController {
     }
 
     @GetMapping("/download/{filename}")
-    @Operation(
-            summary = "Download audio file",
-            description = "Download the audio file by filename"
-    )
+    @Operation(summary = "Download audio file", description = "Download the audio file by filename")
     public ResponseEntity<Resource> getFile(
             @Parameter(description = "Name of the downloaded file", required = true)
             @PathVariable String filename) {
+
         Resource fileResource = downloadService.getFile(filename);
 
-
-        ResponseEntity<Resource> response = ResponseEntity.ok()
+        return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"" + filename + "\"")
                 .body(fileResource);
-
-        CompletableFuture.runAsync(() -> {
-            try {
-                Thread.sleep(2500);
-                downloadService.clearDownloads();
-                log.info("Downloads directory cleaned after serving file: {}", filename);
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                log.error("Cleanup interrupted", e);
-            }
-        });
-
-        return response;
     }
 
-    @DeleteMapping("/cleanup")
-    @Operation(
-            summary = "Cleanup downloads",
-            description = "Delete all downloaded audio files"
-    )
-    @ApiResponse(responseCode = "204", description = "Cleanup successful")
-    public ResponseEntity<Void> clearDownloads() {
-        downloadService.clearDownloads();
-        return ResponseEntity.noContent().build();
-    }
 }
