@@ -11,3 +11,6 @@ springdoc:
   cache:
     disabled: true
   show-actuator: true
+
+server:
+  port: ${PORT:8080}
