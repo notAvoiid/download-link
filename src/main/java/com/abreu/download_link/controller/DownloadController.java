@@ -8,6 +8,7 @@ import jakarta.validation.Valid;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.core.io.Resource;
 import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -47,10 +48,10 @@ public class DownloadController {
                     @ApiResponse(responseCode = "400", description = "Invalid URL provided")
             }
     )
-    public CompletableFuture<ResponseEntity<YoutubeResponse>> downloadAudio(
+    public ResponseEntity<CompletableFuture<YoutubeResponse>> downloadAudio(
             @RequestBody @Valid YoutubeLinkRequest request) {
-        return downloadService.downloadAudio(request)
-                .thenApply(ResponseEntity::ok);
+        return ResponseEntity.status(HttpStatus.CREATED).
+                body(downloadService.downloadAudio(request));
     }
 
     @GetMapping("/status")
