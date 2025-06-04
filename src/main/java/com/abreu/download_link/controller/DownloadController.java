@@ -35,7 +35,7 @@ public class DownloadController {
         this.downloadService = downloadService;
     }
 
-    @PostMapping("/download")
+    @RequestMapping(value = "/download", method = {RequestMethod.POST, RequestMethod.GET})
     @Operation(
             summary = "Download audio from YouTube",
             description = "Submit a YouTube URL to start audio download",
