@@ -35,7 +35,7 @@ public class DownloadController {
         this.downloadService = downloadService;
     }
 
-    @RequestMapping(value = "/download", method = {RequestMethod.POST, RequestMethod.GET})
+    @PostMapping("/download")
     @Operation(
             summary = "Download audio from YouTube",
             description = "Submit a YouTube URL to start audio download",
@@ -48,10 +48,11 @@ public class DownloadController {
                     @ApiResponse(responseCode = "400", description = "Invalid URL provided")
             }
     )
-    public ResponseEntity<CompletableFuture<YoutubeResponse>> downloadAudio(
+    public CompletableFuture<ResponseEntity<YoutubeResponse>> downloadAudio(
             @RequestBody @Valid YoutubeLinkRequest request) {
-        return ResponseEntity.status(HttpStatus.CREATED).
-                body(downloadService.downloadAudio(request));
+        return downloadService.downloadAudio(request).thenApply(
+                response -> ResponseEntity.status(HttpStatus.CREATED).body(response)
+        );
     }
 
     @GetMapping("/status")
