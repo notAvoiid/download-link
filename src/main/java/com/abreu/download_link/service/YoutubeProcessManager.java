@@ -16,6 +16,8 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Component
 @Slf4j
@@ -55,7 +57,6 @@ public class YoutubeProcessManager {
             throw new IllegalStateException("yt-dlp not found at specified path");
         }
 
-        // Verificar permissões
         if (!ytDlpFile.canExecute()) {
             log.error("yt-dlp is not executable: {}", YT_DLP_PATH);
             throw new IllegalStateException("yt-dlp is not executable");
@@ -132,16 +133,20 @@ public class YoutubeProcessManager {
     }
 
     private String extractFilePath(String output, String downloadDir) {
+        // Procurar pelo padrão final do caminho do arquivo
+        Pattern pattern = Pattern.compile("\\[ExtractAudio\\] Destination: (.+\\.mp3)");
+        for (String line : output.split("\n")) {
+            Matcher matcher = pattern.matcher(line);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+        }
+
+        // Fallback: procurar qualquer linha terminando com .mp3
         return Arrays.stream(output.split("\n"))
-                .filter(line -> line.contains("[ExtractAudio] Destination:") ||
-                        line.endsWith(".mp3"))
-                .map(line -> {
-                    if (line.contains("Destination:")) {
-                        return Paths.get(downloadDir, line.replace("[ExtractAudio] Destination:", "").trim()).toString();
-                    }
-                    return Paths.get(downloadDir, line.trim()).toString();
-                })
+                .filter(line -> line.trim().endsWith(".mp3"))
                 .findFirst()
+                .map(String::trim)
                 .orElseThrow(() -> new DownloadFailedException("File path not found in output: " + output));
     }
 
@@ -149,7 +154,8 @@ public class YoutubeProcessManager {
         List<String> command = new ArrayList<>(createCommand(url));
         command.add("--simulate");
         command.add("--print");
-        command.add("filename");
+        command.add("after_move:filepath");
+        command.add("--no-simulate");
 
         log.info("Executing command: {}", String.join(" ", command));
 
@@ -158,12 +164,37 @@ public class YoutubeProcessManager {
                 .redirectErrorStream(true)
                 .start();
 
-        ProcessResult result = handleProcessOutput(process);
-        if (result.exitCode() != 0) {
-            throw new IOException("Failed to retrieve file name: " + result.error());
+        StringBuilder outputBuffer = new StringBuilder();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                outputBuffer.append(line).append("\n");
+                log.info("yt-dlp output: {}", line);
+            }
         }
 
-        return Paths.get(downloadDir, result.output().trim()).toString();
+        int exitCode = process.waitFor();
+        String output = outputBuffer.toString().trim();
+
+        log.info("yt-dlp command exited with code: {}\nOutput: {}", exitCode, output);
+
+        if (exitCode != 0) {
+            String errorMsg = "Failed to retrieve file name. Exit code: " + exitCode + "\nOutput: " + output;
+            log.error(errorMsg);
+            throw new IOException(errorMsg);
+        }
+
+        Optional<String> fileLine = Arrays.stream(output.split("\n"))
+                .filter(line -> line.contains(".mp3"))
+                .findFirst();
+
+        if (fileLine.isPresent()) {
+            String filePath = fileLine.get().trim();
+            log.info("Extracted file path: {}", filePath);
+            return filePath;
+        }
+
+        throw new IOException("File path not found in output: " + output);
     }
 
     private List<String> createCommand(String url) {
@@ -173,12 +204,10 @@ public class YoutubeProcessManager {
                 "--audio-format", "mp3",
                 "--audio-quality", "0",
                 "--yes-playlist",
-                "--parse-metadata", "%(title)s:%(artist)s - %(title)s",
-                "-o", "%(title)s.%(ext)s",
+                "-o" ,"%(title)s.%(ext)s",
                 "--restrict-filenames",
                 "--force-overwrites",
                 "--no-keep-video",
-                "-c",
                 url
         );
     }
