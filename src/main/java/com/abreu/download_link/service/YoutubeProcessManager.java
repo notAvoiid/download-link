@@ -21,23 +21,48 @@ import java.util.Optional;
 public class YoutubeProcessManager {
 
     private static final String YT_DLP_PATH = Optional.ofNullable(System.getenv("YT_DLP_PATH"))
-            .orElse("yt-dlp");
+            .orElse("/venv/bin/yt-dlp");
 
     @PostConstruct
     public void checkYtDlpInstallation() {
+        File ytDlpFile = new File(YT_DLP_PATH);
+        log.info("Verifying yt-dlp installation at: {}", YT_DLP_PATH);
+
+        if (!ytDlpFile.exists()) {
+            log.error("yt-dlp not found at: {}", YT_DLP_PATH);
+            throw new IllegalStateException("yt-dlp not found at specified path");
+        }
+
+        if (!ytDlpFile.canExecute()) {
+            log.error("yt-dlp is not executable: {}", YT_DLP_PATH);
+            throw new IllegalStateException("yt-dlp is not executable");
+        }
+
         try {
+            log.info("Checking yt-dlp version...");
             Process process = new ProcessBuilder(YT_DLP_PATH, "--version").start();
+
+            StringBuilder output = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    output.append(line);
+                }
+            }
+
             int exitCode = process.waitFor();
             if (exitCode != 0) {
-                log.error("yt-dlp not installed or not in PATH. Exit code: {}", exitCode);
-                throw new IllegalStateException("yt-dlp not installed");
+                log.error("yt-dlp version check failed. Exit code: {}", exitCode);
+                throw new IllegalStateException("yt-dlp version check failed");
             }
-            log.info("yt-dlp is available");
+
+            log.info("yt-dlp is available. Version: {}", output.toString());
         } catch (IOException | InterruptedException e) {
             log.error("Failed to verify yt-dlp installation", e);
-            throw new IllegalStateException("yt-dlp verification failed");
+            throw new IllegalStateException("yt-dlp verification failed", e);
         }
     }
+
 
     public ProcessResult executeDownload(String url, String downloadDir) throws IOException, InterruptedException {
         List<String> command = createCommand(url);
