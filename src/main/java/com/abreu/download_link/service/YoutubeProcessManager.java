@@ -10,6 +10,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -20,19 +21,41 @@ import java.util.Optional;
 @Slf4j
 public class YoutubeProcessManager {
 
-    private static final String YT_DLP_PATH = Optional.ofNullable(System.getenv("YT_DLP_PATH"))
-            .orElse("/venv/bin/yt-dlp");
+    private static final String DEFAULT_YT_DLP_PATH = "/venv/bin/yt-dlp";
+    private String YT_DLP_PATH;
 
     @PostConstruct
-    public void checkYtDlpInstallation() {
-        File ytDlpFile = new File(YT_DLP_PATH);
+    public void init() {
+        YT_DLP_PATH = Optional.ofNullable(System.getenv("YT_DLP_PATH"))
+                .orElse(DEFAULT_YT_DLP_PATH);
+
+        if (!YT_DLP_PATH.startsWith("/")) {
+            YT_DLP_PATH = "/" + YT_DLP_PATH;
+            log.warn("Relative path detected, converting to absolute: {}", YT_DLP_PATH);
+        }
+
+        checkYtDlpInstallation();
+    }
+
+    private void checkYtDlpInstallation() {
         log.info("Verifying yt-dlp installation at: {}", YT_DLP_PATH);
+
+        File ytDlpFile = new File(YT_DLP_PATH);
 
         if (!ytDlpFile.exists()) {
             log.error("yt-dlp not found at: {}", YT_DLP_PATH);
+            log.error("Current working directory: {}", System.getProperty("user.dir"));
+            log.error("Directory contents:");
+            try {
+                Files.list(Paths.get("/venv/bin")).forEach(file ->
+                        log.error("- {}", file.toString()));
+            } catch (IOException e) {
+                log.error("Failed to list directory contents", e);
+            }
             throw new IllegalStateException("yt-dlp not found at specified path");
         }
 
+        // Verificar permissões
         if (!ytDlpFile.canExecute()) {
             log.error("yt-dlp is not executable: {}", YT_DLP_PATH);
             throw new IllegalStateException("yt-dlp is not executable");
@@ -43,7 +66,8 @@ public class YoutubeProcessManager {
             Process process = new ProcessBuilder(YT_DLP_PATH, "--version").start();
 
             StringBuilder output = new StringBuilder();
-            try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(process.getInputStream()))) {
                 String line;
                 while ((line = reader.readLine()) != null) {
                     output.append(line);
@@ -62,7 +86,6 @@ public class YoutubeProcessManager {
             throw new IllegalStateException("yt-dlp verification failed", e);
         }
     }
-
 
     public ProcessResult executeDownload(String url, String downloadDir) throws IOException, InterruptedException {
         List<String> command = createCommand(url);
