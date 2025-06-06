@@ -20,7 +20,7 @@ import java.util.Optional;
 public class YoutubeProcessManager {
 
     private static final String YT_DLP_PATH = Optional.ofNullable(System.getenv("YT_DLP_PATH"))
-            .orElse("/venv/bin/yt-dlp");
+            .orElse("yt-dlp");
 
     public ProcessResult executeDownload(String url, String downloadDir) throws IOException, InterruptedException {
         List<String> command = createCommand(url);

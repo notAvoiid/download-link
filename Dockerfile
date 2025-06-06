@@ -18,8 +18,6 @@ RUN ./mvnw dependency:go-offline
 COPY src ./src
 RUN ./mvnw clean package -DskipTests
 
-VOLUME /app/downloads
-
 EXPOSE 8080
 
 CMD ["java", "-jar", "target/download-link-0.0.1-SNAPSHOT.jar"]
