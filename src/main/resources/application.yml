@@ -13,4 +13,4 @@ springdoc:
   show-actuator: true
 
 server:
-  port: ${PORT:8080}
+  port: ${PORT:10000}

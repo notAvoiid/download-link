@@ -2,6 +2,7 @@ package com.abreu.download_link.service;
 
 import com.abreu.download_link.domain.ProcessResult;
 import com.abreu.download_link.exceptions.DownloadFailedException;
+import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -21,6 +22,22 @@ public class YoutubeProcessManager {
 
     private static final String YT_DLP_PATH = Optional.ofNullable(System.getenv("YT_DLP_PATH"))
             .orElse("yt-dlp");
+
+    @PostConstruct
+    public void checkYtDlpInstallation() {
+        try {
+            Process process = new ProcessBuilder(YT_DLP_PATH, "--version").start();
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                log.error("yt-dlp not installed or not in PATH. Exit code: {}", exitCode);
+                throw new IllegalStateException("yt-dlp not installed");
+            }
+            log.info("yt-dlp is available");
+        } catch (IOException | InterruptedException e) {
+            log.error("Failed to verify yt-dlp installation", e);
+            throw new IllegalStateException("yt-dlp verification failed");
+        }
+    }
 
     public ProcessResult executeDownload(String url, String downloadDir) throws IOException, InterruptedException {
         List<String> command = createCommand(url);
@@ -86,6 +103,8 @@ public class YoutubeProcessManager {
         command.add("--print");
         command.add("filename");
 
+        log.info("Executing command: {}", String.join(" ", command));
+
         Process process = new ProcessBuilder(command)
                 .directory(new File(downloadDir))
                 .redirectErrorStream(true)
@@ -107,7 +126,7 @@ public class YoutubeProcessManager {
                 "--audio-quality", "0",
                 "--yes-playlist",
                 "--parse-metadata", "%(title)s:%(artist)s - %(title)s",
-                "-o", "%(artist|Unknown)s - %(title)s.%(ext)s",
+                "-o", "%(title)s.%(ext)s",
                 "--restrict-filenames",
                 "--force-overwrites",
                 "--no-keep-video",
