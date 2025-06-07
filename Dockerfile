@@ -9,17 +9,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN python3 -m venv /venv && \
     /venv/bin/pip install --no-cache-dir yt-dlp
 
-RUN chmod -R a+x /venv/bin/yt-dlp && \
-    /venv/bin/yt-dlp --version > /app/yt-dlp-version.txt
-
-
 ENV PATH="/venv/bin:$PATH"
 
-COPY mvnw pom.xml ./
-COPY .mvn .mvn
-RUN ./mvnw dependency:go-offline
+COPY . .
 
-COPY src ./src
+RUN ./mvnw dependency:go-offline
 RUN ./mvnw clean package -DskipTests
 
 EXPOSE 8080
