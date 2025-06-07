@@ -11,6 +11,7 @@ import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -23,7 +24,10 @@ import java.util.regex.Pattern;
 @Slf4j
 public class YoutubeProcessManager {
 
-    private static final String DEFAULT_YT_DLP_PATH = "/venv/bin/yt-dlp";
+    private static final String DEFAULT_YT_DLP_PATH =
+            System.getProperty("os.name").toLowerCase().contains("win")
+                    ? "venv\\Scripts\\yt-dlp.exe"
+                    : "/venv/bin/yt-dlp";
     private String YT_DLP_PATH;
 
     @PostConstruct
@@ -31,13 +35,11 @@ public class YoutubeProcessManager {
         YT_DLP_PATH = Optional.ofNullable(System.getenv("YT_DLP_PATH"))
                 .orElse(DEFAULT_YT_DLP_PATH);
 
-        if (!YT_DLP_PATH.startsWith("/")) {
-            YT_DLP_PATH = "/" + YT_DLP_PATH;
-            log.warn("Relative path detected, converting to absolute: {}", YT_DLP_PATH);
-        }
+        log.info("Using yt-dlp path: {}", YT_DLP_PATH);
 
         checkYtDlpInstallation();
     }
+
 
     private void checkYtDlpInstallation() {
         log.info("Verifying yt-dlp installation at: {}", YT_DLP_PATH);
@@ -49,8 +51,10 @@ public class YoutubeProcessManager {
             log.error("Current working directory: {}", System.getProperty("user.dir"));
             log.error("Directory contents:");
             try {
-                Files.list(Paths.get("/venv/bin")).forEach(file ->
-                        log.error("- {}", file.toString()));
+                Path path = YT_DLP_PATH.contains("Scripts")
+                        ? Paths.get("venv/Scripts")
+                        : Paths.get("/venv/bin");
+                Files.list(path).forEach(file -> log.error("- {}", file));
             } catch (IOException e) {
                 log.error("Failed to list directory contents", e);
             }
@@ -133,8 +137,7 @@ public class YoutubeProcessManager {
     }
 
     private String extractFilePath(String output, String downloadDir) {
-        // Procurar pelo padrão final do caminho do arquivo
-        Pattern pattern = Pattern.compile("\\[ExtractAudio\\] Destination: (.+\\.mp3)");
+        Pattern pattern = Pattern.compile("\\[ExtractAudio] Destination: (.+\\.mp3)");
         for (String line : output.split("\n")) {
             Matcher matcher = pattern.matcher(line);
             if (matcher.find()) {
@@ -142,7 +145,6 @@ public class YoutubeProcessManager {
             }
         }
 
-        // Fallback: procurar qualquer linha terminando com .mp3
         return Arrays.stream(output.split("\n"))
                 .filter(line -> line.trim().endsWith(".mp3"))
                 .findFirst()
@@ -156,8 +158,6 @@ public class YoutubeProcessManager {
         command.add("--print");
         command.add("after_move:filepath");
         command.add("--no-simulate");
-
-        log.info("Executing command: {}", String.join(" ", command));
 
         Process process = new ProcessBuilder(command)
                 .directory(new File(downloadDir))
@@ -176,7 +176,8 @@ public class YoutubeProcessManager {
         int exitCode = process.waitFor();
         String output = outputBuffer.toString().trim();
 
-        log.info("yt-dlp command exited with code: {}\nOutput: {}", exitCode, output);
+        log.info("yt-dlp command exited with code: {}", exitCode);
+        log.info("Full output: {}", output);
 
         if (exitCode != 0) {
             String errorMsg = "Failed to retrieve file name. Exit code: " + exitCode + "\nOutput: " + output;
@@ -203,7 +204,6 @@ public class YoutubeProcessManager {
                 "-x",
                 "--audio-format", "mp3",
                 "--audio-quality", "0",
-                "--yes-playlist",
                 "-o" ,"%(title)s.%(ext)s",
                 "--restrict-filenames",
                 "--force-overwrites",
@@ -211,25 +211,4 @@ public class YoutubeProcessManager {
                 url
         );
     }
-
-    private ProcessResult handleProcessOutput(Process process) throws InterruptedException, IOException {
-        StringBuilder outputBuffer = new StringBuilder();
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                outputBuffer.append(line).append("\n");
-            }
-        }
-        int exitCode = process.waitFor();
-        String output = outputBuffer.toString().trim();
-        String firstLine = output.split("\n")[0].trim();
-
-        return new ProcessResult(
-                exitCode,
-                firstLine,
-                "",
-                output
-        );
-    }
-
 }

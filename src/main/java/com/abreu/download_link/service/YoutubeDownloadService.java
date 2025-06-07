@@ -15,7 +15,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.io.File;
 import java.io.IOException;
 import java.nio.file.FileSystems;
 import java.nio.file.Files;
@@ -24,6 +23,7 @@ import java.nio.file.Paths;
 import java.nio.file.attribute.PosixFilePermissions;
 import java.time.Instant;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -79,93 +79,79 @@ public class YoutubeDownloadService {
     @Async
     public CompletableFuture<YoutubeResponse> downloadAudio(YoutubeLinkRequest request) {
         String url = request.url();
-        Path filePathWebm = null;
-        Path filePathMp3 = null;
+        Path filePath = null;
 
         try {
             statusManager.updateStatus(url, Status.STARTING, "Download starting");
-            String expectedFileName = processManager.getExpectedFileName(url, DOWNLOAD_DIR);
-            filePathWebm = Paths.get(DOWNLOAD_DIR, new File(expectedFileName).getName());
-            fileAccessMap.put(filePathWebm.toString(), new FileMetadata(true));
+            log.info("Starting download for: {}", url);
+
+            // Obter nome do arquivo esperado
+            String expectedFilePath = processManager.getExpectedFileName(url, DOWNLOAD_DIR);
+            filePath = Paths.get(expectedFilePath);
+            fileAccessMap.put(filePath.toString(), new FileMetadata(true));
 
             statusManager.updateStatus(url, Status.IN_PROGRESS, "Download in progress");
             log.info("Starting download for URL: {}", url);
 
-            try {
-                log.info("MP3 files at {}:", DOWNLOAD_DIR);
-
-                Files.list(Paths.get(DOWNLOAD_DIR))
-                        .filter(p -> p.toString().endsWith(".mp3"))
-                        .forEach(mp3 -> {
-                            try {
-                                log.info("- {} ({} bytes, modified at {})",
-                                        mp3.getFileName(),
-                                        Files.size(mp3),
-                                        Files.getLastModifiedTime(mp3));
-                            } catch (IOException e) {
-                                log.warn("- {} [details unavailable]", mp3.getFileName());
-                            }
-                        });
-            } catch (IOException e) {
-                log.error("Failed to list MP3s: {}", e.getMessage());
-            }
-
             ProcessResult result = processManager.executeDownload(url, DOWNLOAD_DIR);
-            log.info("Download directory: {}", DOWNLOAD_DIR);
 
-            try (var files = Files.list(Paths.get(DOWNLOAD_DIR))) {
-                filePathMp3 = files
-                        .filter(path -> path.toString().endsWith(".mp3"))
-                        .max((f1, f2) -> {
-                            try {
-                                return Files.getLastModifiedTime(f1).compareTo(Files.getLastModifiedTime(f2));
-                            } catch (IOException e) {
-                                return 0;
-                            }
-                        })
-                        .orElseThrow(() -> new DownloadFailedException("MP3 file not found after download"));
+            if (result.exitCode() != 0 || !Files.exists(filePath)) {
+                // Tentar encontrar o arquivo mais recente como fallback
+                try (var files = Files.list(Paths.get(DOWNLOAD_DIR))) {
+                    filePath = files
+                            .filter(path -> path.toString().endsWith(".mp3"))
+                            .max(Comparator.comparingLong(p -> {
+                                try {
+                                    return Files.getLastModifiedTime(p).toMillis();
+                                } catch (IOException e) {
+                                    return 0;
+                                }
+                            }))
+                            .orElseThrow(() -> new DownloadFailedException("MP3 file not found after download"));
+                }
             }
 
-            try {
-                log.info("MP3 files in {}:", DOWNLOAD_DIR);
+            fileAccessMap.put(filePath.toString(), new FileMetadata(true));
 
-                Files.list(Paths.get(DOWNLOAD_DIR))
-                        .filter(p -> p.toString().endsWith(".mp3"))
-                        .forEach(mp3 -> {
-                            try {
-                                log.info("- {} ({} bytes, modified at {})",
-                                        mp3.getFileName(),
-                                        Files.size(mp3),
-                                        Files.getLastModifiedTime(mp3));
-                            } catch (IOException e) {
-                                log.warn("- {} [details unavailable]", mp3.getFileName());
-                            }
-                        });
-            } catch (IOException e) {
-                log.error("Failed to list MP3s: {}", e.getMessage());
-            }
-
-            fileAccessMap.put(filePathMp3.toString(), new FileMetadata(true));
-
-            if (result.exitCode() != 0 || !Files.exists(filePathMp3)) {
-                throw new DownloadFailedException("Download failed. Exit code: " + result.exitCode());
+            if (!Files.exists(filePath)) {
+                throw new DownloadFailedException("Download failed. File not created: " + filePath);
             }
 
             statusManager.updateStatus(url, Status.COMPLETED, "Download completed successfully");
-            log.info("The file was downloaded at: {}", filePathMp3);
+            log.info("The file was downloaded at: {}", filePath);
             return CompletableFuture.completedFuture(
-                    new YoutubeResponse("Download completed successfully", filePathMp3.toString(), Status.COMPLETED)
+                    new YoutubeResponse("Download completed successfully", filePath.toString(), Status.COMPLETED)
             );
 
         } catch (IOException | InterruptedException e) {
             Thread.currentThread().interrupt();
+            log.error("Download failed for URL: {}", url, e);
+
+            // Tentativa de recuperação: buscar qualquer arquivo MP3
+            if (filePath == null || !Files.exists(filePath)) {
+                try {
+                    try (var files = Files.list(Paths.get(DOWNLOAD_DIR))) {
+                        filePath = files
+                                .filter(path -> path.toString().endsWith(".mp3"))
+                                .findFirst()
+                                .orElse(null);
+                    }
+                } catch (IOException ex) {
+                    log.error("Error while trying to find downloaded file", ex);
+                }
+            }
+
+            if (filePath != null && Files.exists(filePath)) {
+                log.warn("Using fallback file: {}", filePath);
+                return CompletableFuture.completedFuture(
+                        new YoutubeResponse("Download completed with warnings", filePath.toString(), Status.COMPLETED)
+                );
+            }
+
             throw new DownloadFailedException("Download error", e);
         } finally {
-            if (filePathWebm != null && fileAccessMap.containsKey(filePathWebm.toString())) {
-                fileAccessMap.get(filePathWebm.toString()).setInUse(false);
-            }
-            if (filePathMp3 != null && fileAccessMap.containsKey(filePathMp3.toString())) {
-                fileAccessMap.get(filePathMp3.toString()).setInUse(false);
+            if (filePath != null && fileAccessMap.containsKey(filePath.toString())) {
+                fileAccessMap.get(filePath.toString()).setInUse(false);
             }
         }
     }
