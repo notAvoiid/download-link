@@ -15,12 +15,12 @@
 <br>
 
 <p align="center">
-  <b>Projeto para download de vídeos do YouTube.</b>
+  <b>Projeto para download de músicas do YouTube.</b>
 </p>
 
 ## 🚀 Começando
 
-Este projeto é uma API desenvolvida com Spring Boot que permite baixar vídeos do YouTube a partir de uma URL fornecida pelo usuário. A aplicação é empacotada com Docker para facilitar a execução em qualquer ambiente.
+Este projeto é uma API desenvolvida com Spring Boot que permite baixar músicas do YouTube a partir de uma URL fornecida pelo usuário. A aplicação é empacotada com Docker para facilitar a execução em qualquer ambiente.
 
 ## ⚙️ Tecnologias
 
